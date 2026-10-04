@@ -1,0 +1,19 @@
+node_modules
+dist
+dist-ssr
+build
+
+.env
+.env.*.local
+!.env.example
+
+*.log
+npm-debug.log*
+
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Prisma generated client (regenerated via `npx prisma generate`)
+server/node_modules/.prisma
