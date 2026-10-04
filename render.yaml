@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: openup-server
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: server
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: STUN_URLS
+        value: stun:stun.l.google.com:19302
+      # Set these manually in the Render dashboard (secrets, not committed):
+      # DATABASE_URL, REDIS_URL, JWT_SECRET, CLIENT_ORIGIN
