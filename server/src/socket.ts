@@ -15,6 +15,19 @@ import { redis, QUEUE_KEY } from "./redis";
 const roomBySocket = new Map<string, string>(); // socketId -> roomId
 const partnerBySocket = new Map<string, string>(); // socketId -> partner socketId
 
+// Serializes all matchmaking attempts. Without this, two users calling
+// find_match at nearly the same instant can both see the Redis queue as
+// empty (the check-then-push isn't atomic across separate async calls),
+// so both get queued instead of paired with each other — they'd sit
+// waiting until something (a refresh, a skip) retriggers the match.
+let matchmakingLock: Promise<unknown> = Promise.resolve();
+
+function withMatchmakingLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = matchmakingLock.then(fn, fn);
+  matchmakingLock = run.catch(() => undefined);
+  return run;
+}
+
 export function registerSocketHandlers(io: Server) {
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
@@ -60,7 +73,7 @@ export function registerSocketHandlers(io: Server) {
     socket.on("disconnect", () => {
       void (async () => {
         console.log(`disconnected: ${auth.displayName} (${socket.id})`);
-        await removeFromQueue(socket.id);
+        await withMatchmakingLock(() => removeFromQueue(socket.id));
         await leaveCurrentRoom(io, socket, "partner_left");
       })();
     });
@@ -74,6 +87,10 @@ interface QueueEntry {
 }
 
 async function handleFindMatch(io: Server, socket: Socket) {
+  return withMatchmakingLock(() => handleFindMatchLocked(io, socket));
+}
+
+async function handleFindMatchLocked(io: Server, socket: Socket) {
   const auth = socket.data.auth as AuthPayload;
   if (roomBySocket.has(socket.id)) return;
 
