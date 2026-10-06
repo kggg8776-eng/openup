@@ -38,9 +38,10 @@ export function useWebRTC(socket: Socket | null) {
     getIceServers()
       .then((res) => {
         iceServersRef.current = res.iceServers
+        console.log('[webrtc] ICE servers from backend:', res.iceServers)
       })
-      .catch(() => {
-        /* fall back to default STUN already set above */
+      .catch((err) => {
+        console.warn('[webrtc] Failed to fetch ICE servers, using default STUN only:', err)
       })
   }, [])
 
@@ -72,7 +73,14 @@ export function useWebRTC(socket: Socket | null) {
       }
     }
     pc.onconnectionstatechange = () => {
+      console.log('[webrtc] connectionState:', pc.connectionState)
       if (pc.connectionState === 'connected') setStatus('in_call')
+    }
+    pc.oniceconnectionstatechange = () => {
+      console.log('[webrtc] iceConnectionState:', pc.iceConnectionState)
+    }
+    pc.onicegatheringstatechange = () => {
+      console.log('[webrtc] iceGatheringState:', pc.iceGatheringState)
     }
 
     const stream = localStreamRef.current
