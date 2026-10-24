@@ -32,6 +32,8 @@ export function useWebRTC(socket: Socket | null) {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  const pendingSignalsRef = useRef<SignalPayload[]>([])
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([])
   const iceServersRef = useRef<RTCIceServer[]>([{ urls: 'stun:stun.l.google.com:19302' }])
 
   useEffect(() => {
@@ -48,6 +50,8 @@ export function useWebRTC(socket: Socket | null) {
   const cleanupPeer = useCallback(() => {
     peerRef.current?.close()
     peerRef.current = null
+    pendingSignalsRef.current = []
+    pendingCandidatesRef.current = []
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
   }, [])
 
@@ -148,6 +152,9 @@ export function useWebRTC(socket: Socket | null) {
       await ensureLocalStream()
       const pc = createPeerConnection()
 
+      const earlySignals = pendingSignalsRef.current.splice(0)
+      for (const signal of earlySignals) await handleSignal(signal)
+
       if (isInitiator) {
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
@@ -155,23 +162,47 @@ export function useWebRTC(socket: Socket | null) {
       }
     }
 
-    const onSignal = async (data: SignalPayload) => {
+    const flushPendingCandidates = async (pc: RTCPeerConnection) => {
+      const candidates = pendingCandidatesRef.current.splice(0)
+      for (const candidate of candidates) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate))
+        } catch {
+          // Late/duplicate ICE candidates can safely be ignored.
+        }
+      }
+    }
+
+    const handleSignal = async (data: SignalPayload) => {
       const pc = peerRef.current
-      if (!pc) return
+      if (!pc) {
+        pendingSignalsRef.current.push(data)
+        return
+      }
       if (data.type === 'offer' && data.sdp) {
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+        await flushPendingCandidates(pc)
         const answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
         socket.emit('signal', { type: 'answer', sdp: answer })
       } else if (data.type === 'answer' && data.sdp) {
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+        await flushPendingCandidates(pc)
       } else if (data.type === 'ice' && data.candidate) {
+        if (!pc.remoteDescription) {
+          pendingCandidatesRef.current.push(data.candidate)
+          return
+        }
         try {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
         } catch {
           // Late/duplicate ICE candidates can safely be ignored.
         }
       }
+    }
+
+    const onSignal = (data: SignalPayload) => {
+      void handleSignal(data)
     }
 
     const onPartnerGone = () => {
