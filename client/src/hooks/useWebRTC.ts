@@ -34,10 +34,11 @@ export function useWebRTC(socket: Socket | null) {
   const localStreamRef = useRef<MediaStream | null>(null)
   const pendingSignalsRef = useRef<SignalPayload[]>([])
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([])
+  const iceServersReadyRef = useRef<Promise<void>>(Promise.resolve())
   const iceServersRef = useRef<RTCIceServer[]>([{ urls: 'stun:stun.l.google.com:19302' }])
 
   useEffect(() => {
-    getIceServers()
+    iceServersReadyRef.current = getIceServers()
       .then((res) => {
         iceServersRef.current = res.iceServers
         console.log('[webrtc] ICE servers from backend:', res.iceServers)
@@ -150,6 +151,7 @@ export function useWebRTC(socket: Socket | null) {
       setPartner(matchedPartner)
       setStatus('connecting')
       await ensureLocalStream()
+      await iceServersReadyRef.current
       const pc = createPeerConnection()
 
       const earlySignals = pendingSignalsRef.current.splice(0)
