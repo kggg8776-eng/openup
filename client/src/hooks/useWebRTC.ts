@@ -56,8 +56,19 @@ export function useWebRTC(socket: Socket | null) {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
   }, [])
 
+  const stopLocalStream = useCallback(() => {
+    localStreamRef.current?.getTracks().forEach((track) => track.stop())
+    localStreamRef.current = null
+    if (localVideoRef.current) localVideoRef.current.srcObject = null
+  }, [])
+
   const ensureLocalStream = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('This browser does not support webcam access.')
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     localStreamRef.current = stream
     if (localVideoRef.current) localVideoRef.current.srcObject = stream
@@ -65,6 +76,10 @@ export function useWebRTC(socket: Socket | null) {
   }, [])
 
   const createPeerConnection = useCallback(() => {
+    if (peerRef.current) {
+      cleanupPeer()
+    }
+
     const pc = new RTCPeerConnection({ iceServers: iceServersRef.current })
 
     pc.onicecandidate = (event) => {
@@ -93,7 +108,7 @@ export function useWebRTC(socket: Socket | null) {
 
     peerRef.current = pc
     return pc
-  }, [socket])
+  }, [cleanupPeer, socket])
 
   const startSearch = useCallback(async () => {
     if (!socket) return
@@ -238,11 +253,10 @@ export function useWebRTC(socket: Socket | null) {
 
   const stopAll = useCallback(() => {
     cleanupPeer()
-    localStreamRef.current?.getTracks().forEach((t) => t.stop())
-    localStreamRef.current = null
+    stopLocalStream()
     setStatus('idle')
     setPartner(null)
-  }, [cleanupPeer])
+  }, [cleanupPeer, stopLocalStream])
 
   return {
     status,
